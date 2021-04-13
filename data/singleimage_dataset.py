@@ -99,7 +99,8 @@ class SingleImageDataset(BaseDataset):
             transform = get_transform(self.opt, method=Image.BILINEAR)
             A = transform(A_img)
             B = transform(B_img)
-
+        import numpy as np
+        print(np.asarray(A).shape, 'wow')
         return {'A': A, 'B': B, 'A_paths': A_path, 'B_paths': B_path}
 
     def __len__(self):

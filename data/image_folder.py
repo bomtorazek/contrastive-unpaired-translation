@@ -21,15 +21,31 @@ def is_image_file(filename):
     return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
 
 
-def make_dataset(dir, max_dataset_size=float("inf")):
+def make_dataset(dir, max_dataset_size=float("inf"), is_COI = False, dir_mask = ''):
     images = []
-    assert os.path.isdir(dir) or os.path.islink(dir), '%s is not a valid directory' % dir
+    
+    if is_COI:
+        for instance in os.listdir(dir):
+            for root, _, fnames in sorted(os.walk(os.path.join(dir, instance), followlinks=True)):
+                for fname in fnames:
+                    if is_image_file(fname):
+                        path = os.path.join(root, fname)
+                        
+                        no_onoff_fname = fname.replace('.d-on','') if '.d-on' in fname else fname.replace('.d-off','')
+                        mask_path = os.path.join(dir_mask,instance,no_onoff_fname)
+                        if os.path.isfile(mask_path) and dir_mask:
+                            images.append([path,mask_path])
+                        else:
+                            images.append([path])
 
-    for root, _, fnames in sorted(os.walk(dir, followlinks=True)):
-        for fname in fnames:
-            if is_image_file(fname):
-                path = os.path.join(root, fname)
-                images.append(path)
+    else:
+        assert os.path.isdir(dir) or os.path.islink(dir), '%s is not a valid directory' % dir
+        for root, _, fnames in sorted(os.walk(dir, followlinks=True)):
+            for fname in fnames:
+                if is_image_file(fname):
+                    path = os.path.join(root, fname)
+                    images.append(path)
+
     return images[:min(max_dataset_size, len(images))]
 
 

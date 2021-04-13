@@ -40,7 +40,7 @@ if __name__ == '__main__':
                 torch.cuda.synchronize()
             optimize_start_time = time.time()
             if epoch == opt.epoch_count and i == 0:
-                model.data_dependent_initialize(data)
+                model.data_dependent_initialize(data) #data 들어간 것은 다 수정. FIXME
                 model.setup(opt)               # regular setup: load and print networks; create schedulers
                 model.parallelize()
             model.set_input(data)  # unpack data from dataset and apply preprocessing
