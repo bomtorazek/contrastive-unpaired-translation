@@ -27,15 +27,15 @@ def find_dataset_using_name(dataset_name):
 
     dataset = None
     target_dataset_name = dataset_name.replace('_', '') + 'dataset'
-    for name, cls in datasetlib.__dict__.items():
+    for name, cls in datasetlib.__dict__.items(): 
         if name.lower() == target_dataset_name.lower() \
-           and issubclass(cls, BaseDataset):
+           and issubclass(cls, BaseDataset): # class UnalignedDataset(BaseDataset): 을 찾는 과정
             dataset = cls
 
     if dataset is None:
         raise NotImplementedError("In %s.py, there should be a subclass of BaseDataset with class name that matches %s in lowercase." % (dataset_filename, target_dataset_name))
 
-    return dataset
+    return dataset #UnalignedDataset
 
 
 def get_option_setter(dataset_name):
@@ -70,7 +70,7 @@ class CustomDatasetDataLoader():
         """
         self.opt = opt
         dataset_class = find_dataset_using_name(opt.dataset_mode)
-        self.dataset = dataset_class(opt)
+        self.dataset = dataset_class(opt) #unaligneddataset
         print("dataset [%s] was created" % type(self.dataset).__name__)
         self.dataloader = torch.utils.data.DataLoader(
             self.dataset,

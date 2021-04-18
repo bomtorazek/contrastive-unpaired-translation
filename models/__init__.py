@@ -61,7 +61,7 @@ def create_model(opt):
         >>> from models import create_model
         >>> model = create_model(opt)
     """
-    model = find_model_using_name(opt.model)
+    model = find_model_using_name(opt.model) # models.cut_model
     instance = model(opt)
     print("model [%s] was created" % type(instance).__name__)
     return instance

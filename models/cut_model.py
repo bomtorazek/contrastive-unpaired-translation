@@ -102,11 +102,13 @@ class CUTModel(BaseModel):
         bs_per_gpu = self.real_A.size(0) // max(len(self.opt.gpu_ids), 1)
         self.real_A = self.real_A[:bs_per_gpu]
         self.real_B = self.real_B[:bs_per_gpu]
+        self.mask = self.mask[:bs_per_gpu]
+
         self.forward()                     # compute fake images: G(A)
         if self.opt.isTrain:
             self.compute_D_loss().backward()                  # calculate gradients for D
             self.compute_G_loss().backward()                   # calculate graidents for G
-            if self.opt.lambda_NCE > 0.0:
+            if self.opt.lambda_NCE > 0.0: #nce loss
                 self.optimizer_F = torch.optim.Adam(self.netF.parameters(), lr=self.opt.lr, betas=(self.opt.beta1, self.opt.beta2))
                 self.optimizers.append(self.optimizer_F)
 
@@ -141,6 +143,7 @@ class CUTModel(BaseModel):
         AtoB = self.opt.direction == 'AtoB'
         self.real_A = input['A' if AtoB else 'B'].to(self.device)
         self.real_B = input['B' if AtoB else 'A'].to(self.device)
+        self.mask = input['A_mask']
         self.image_paths = input['A_paths' if AtoB else 'B_paths']
 
     def forward(self):
@@ -182,7 +185,7 @@ class CUTModel(BaseModel):
             self.loss_G_GAN = 0.0
 
         if self.opt.lambda_NCE > 0.0:
-            self.loss_NCE = self.calculate_NCE_loss(self.real_A, self.fake_B)
+            self.loss_NCE = self.calculate_NCE_loss(self.real_A, self.fake_B, mask = self.mask)
         else:
             self.loss_NCE, self.loss_NCE_bd = 0.0, 0.0
 
@@ -195,20 +198,35 @@ class CUTModel(BaseModel):
         self.loss_G = self.loss_G_GAN + loss_NCE_both
         return self.loss_G
 
-    def calculate_NCE_loss(self, src, tgt):
-        n_layers = len(self.nce_layers)
-        feat_q = self.netG(tgt, self.nce_layers, encode_only=True)
-
-        if self.opt.flip_equivariance and self.flipped_for_equivariance:
+    def calculate_NCE_loss(self, src, tgt, mask = None):
+        # src: real A
+        # tgt: fake B
+        n_layers = len(self.nce_layers) # [0, 4, 8, 12, 16]
+        feat_q = self.netG(tgt, self.nce_layers, encode_only=True) # query from fake, 여러 레이어의 feature를 리스트로
+        if self.opt.flip_equivariance and self.flipped_for_equivariance: #No
             feat_q = [torch.flip(fq, [3]) for fq in feat_q]
-
-        feat_k = self.netG(src, self.nce_layers, encode_only=True)
-        feat_k_pool, sample_ids = self.netF(feat_k, self.opt.num_patches, None)
-        feat_q_pool, _ = self.netF(feat_q, self.opt.num_patches, sample_ids)
+        # print(feat_q[0].shape ) >> [1, 3, 262, 262]
+        feat_k = self.netG(src, self.nce_layers, encode_only=True) # key from real
+        
+        
+        if mask is not None and mask != []:
+            # mask 1,1,256,256
+            # src 1,3,256,256
+            feat_k_pool, sample_ids, mask_pool = self.netF(feat_k, self.opt.num_patches, None, mask=mask) # MLP, get 256 patches, MASK
+        else:
+            feat_k_pool, sample_ids = self.netF(feat_k, self.opt.num_patches, None) # MLP, get 256 patches
+        feat_q_pool, _ = self.netF(feat_q, self.opt.num_patches, sample_ids) # len 5, [256,256], 
+        # sample_ids is for getting patches with the same positions
 
         total_nce_loss = 0.0
-        for f_q, f_k, crit, nce_layer in zip(feat_q_pool, feat_k_pool, self.criterionNCE, self.nce_layers):
-            loss = crit(f_q, f_k) * self.opt.lambda_NCE
-            total_nce_loss += loss.mean()
+
+        if mask is not None and mask != []:
+            for f_q, f_k, crit, nce_layer, msk in zip(feat_q_pool, feat_k_pool, self.criterionNCE, self.nce_layers, mask_pool):
+                loss = crit(f_q, f_k, mask = msk) * self.opt.lambda_NCE # f_q >> (SB, SB)
+                total_nce_loss += loss.mean()
+        else:
+            for f_q, f_k, crit, nce_layer in zip(feat_q_pool, feat_k_pool, self.criterionNCE, self.nce_layers):
+                loss = crit(f_q, f_k) * self.opt.lambda_NCE # f_q >> (SB, SB)
+                total_nce_loss += loss.mean()
 
         return total_nce_loss / n_layers

@@ -30,10 +30,9 @@ def make_dataset(dir, max_dataset_size=float("inf"), is_COI = False, dir_mask = 
                 for fname in fnames:
                     if is_image_file(fname):
                         path = os.path.join(root, fname)
-                        
-                        no_onoff_fname = fname.replace('.d-on','') if '.d-on' in fname else fname.replace('.d-off','')
-                        mask_path = os.path.join(dir_mask,instance,no_onoff_fname)
-                        if os.path.isfile(mask_path) and dir_mask:
+                        without_onoff_fname = fname.replace('.d-on','') if '.d-on' in fname else fname.replace('.d-off','')
+                        mask_path = os.path.join(dir_mask,instance,without_onoff_fname)
+                        if os.path.isfile(mask_path) and dir_mask: # only if mask exists
                             images.append([path,mask_path])
                         else:
                             images.append([path])

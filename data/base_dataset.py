@@ -5,9 +5,12 @@ It also includes common transformation functions (e.g., get_transform, __scale_w
 import random
 import numpy as np
 import torch.utils.data as data
+import torch
 from PIL import Image
 import torchvision.transforms as transforms
+import torchvision.transforms.functional as TF
 from abc import ABC, abstractmethod
+import numpy as np
 
 
 class BaseDataset(data.Dataset, ABC):
@@ -130,54 +133,43 @@ def get_transform(opt, params=None, grayscale=False, method=Image.BICUBIC, conve
             transform_list += [transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
     return transforms.Compose(transform_list)
 
-def get_transform_both(opt,img, mask,params=None, grayscale=False, method=Image.BICUBIC, convert=True):
-    transform_list = []
-    if 'fixsize' in opt.preprocess:
-        transform_list.append(transforms.Resize(params["size"], method))
+def get_transform_both(opt,image, mask,params=None, grayscale=False, method=Image.BICUBIC, convert=True):
+    # https://discuss.pytorch.org/t/torchvision-transfors-how-to-perform-identical-transform-on-both-image-and-target/10606/7
+    # [Resize(size=[286, 286], interpolation=PIL.Image.BICUBIC), 
+    # RandomCrop(size=(256, 256), padding=None), Lambda(), RandomHorizontalFlip(p=0.5), 
+    # ToTensor(), Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))]
+    
+    if 'fixsize' in opt.preprocess: # default >> resize and crop
+        resize = transforms.Resize(params["size"], method)
+        image = resize(image)
+        mask = resize(mask)
+        
     if 'resize' in opt.preprocess:
         osize = [opt.load_size, opt.load_size]
-        if "gta2cityscapes" in opt.dataroot:
-            osize[0] = opt.load_size // 2
-        transform_list.append(transforms.Resize(osize, method))
-    elif 'scale_width' in opt.preprocess:
-        transform_list.append(transforms.Lambda(lambda img: __scale_width(img, opt.load_size, opt.crop_size, method)))
-    elif 'scale_shortside' in opt.preprocess:
-        transform_list.append(transforms.Lambda(lambda img: __scale_shortside(img, opt.load_size, opt.crop_size, method)))
-
-    if 'zoom' in opt.preprocess:
-        if params is None:
-            transform_list.append(transforms.Lambda(lambda img: __random_zoom(img, opt.load_size, opt.crop_size, method)))
-        else:
-            transform_list.append(transforms.Lambda(lambda img: __random_zoom(img, opt.load_size, opt.crop_size, method, factor=params["scale_factor"])))
-
+        resize = (transforms.Resize(osize, method))
+        image = resize(image)
+        mask = resize(mask)
+    # no zoom, scale_width, scale_short_side
     if 'crop' in opt.preprocess:
-        if params is None or 'crop_pos' not in params:
-            transform_list.append(transforms.RandomCrop(opt.crop_size))
-        else:
-            transform_list.append(transforms.Lambda(lambda img: __crop(img, params['crop_pos'], opt.crop_size)))
-
-    if 'patch' in opt.preprocess:
-        transform_list.append(transforms.Lambda(lambda img: __patch(img, params['patch_index'], opt.crop_size)))
-
-    if 'trim' in opt.preprocess:
-        transform_list.append(transforms.Lambda(lambda img: __trim(img, opt.crop_size)))
-
-    # if opt.preprocess == 'none':
-    transform_list.append(transforms.Lambda(lambda img: __make_power_2(img, base=4, method=method)))
+        i, j, h, w = transforms.RandomCrop.get_params(image, output_size=(opt.crop_size, opt.crop_size))
+        image = TF.crop(image, i, j, h, w)
+        mask = TF.crop(mask, i, j, h, w)
+       
+    # no patch or trim
+    power2 = (transforms.Lambda(lambda img: __make_power_2(img, base=4, method=method)))
+    image = power2(image)
+    mask  = power2(mask)
 
     if not opt.no_flip:
-        if params is None or 'flip' not in params:
-            transform_list.append(transforms.RandomHorizontalFlip())
-        elif 'flip' in params:
-            transform_list.append(transforms.Lambda(lambda img: __flip(img, params['flip'])))
-
+        if random.random() > 0.5:
+            image = TF.hflip(image)
+            mask = TF.hflip(mask)
+        
     if convert:
-        transform_list += [transforms.ToTensor()]
-        if grayscale:
-            transform_list += [transforms.Normalize((0.5,), (0.5,))]
-        else:
-            transform_list += [transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
-    return transforms.Compose(transform_list)
+        image = TF.to_tensor(image)
+        mask = TF.to_tensor(mask)
+        image = TF.normalize(image, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    return image, mask
 
 
 

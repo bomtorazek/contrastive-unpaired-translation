@@ -275,7 +275,7 @@ def define_F(input_nc, netF, norm='batch', use_dropout=False, init_type='normal'
         net = ReshapeF()
     elif netF == 'sample':
         net = PatchSampleF(use_mlp=False, init_type=init_type, init_gain=init_gain, gpu_ids=gpu_ids, nc=opt.netF_nc)
-    elif netF == 'mlp_sample':
+    elif netF == 'mlp_sample': # default
         net = PatchSampleF(use_mlp=True, init_type=init_type, init_gain=init_gain, gpu_ids=gpu_ids, nc=opt.netF_nc)
     elif netF == 'strided_conv':
         net = StridedConvF(init_type=init_type, init_gain=init_gain, gpu_ids=gpu_ids)
@@ -541,43 +541,59 @@ class PatchSampleF(nn.Module):
         self.gpu_ids = gpu_ids
 
     def create_mlp(self, feats):
-        for mlp_id, feat in enumerate(feats):
-            input_nc = feat.shape[1]
+        for mlp_id, feat in enumerate(feats): # per layer
+            input_nc = feat.shape[1] # C
             mlp = nn.Sequential(*[nn.Linear(input_nc, self.nc), nn.ReLU(), nn.Linear(self.nc, self.nc)])
             if len(self.gpu_ids) > 0:
                 mlp.cuda()
-            setattr(self, 'mlp_%d' % mlp_id, mlp)
+            setattr(self, 'mlp_%d' % mlp_id, mlp) # set attr by each channel numbers
         init_net(self, self.init_type, self.init_gain, self.gpu_ids)
         self.mlp_init = True
 
-    def forward(self, feats, num_patches=64, patch_ids=None):
+    def forward(self, feats, num_patches=64, patch_ids=None, mask =None):
         return_ids = []
         return_feats = []
+        if mask is not None:
+            mask_list = []
         if self.use_mlp and not self.mlp_init:
             self.create_mlp(feats)
-        for feat_id, feat in enumerate(feats):
-            B, H, W = feat.shape[0], feat.shape[2], feat.shape[3]
-            feat_reshape = feat.permute(0, 2, 3, 1).flatten(1, 2)
+        for feat_id, feat in enumerate(feats): # layers
+            B, H, W = feat.shape[0], feat.shape[2], feat.shape[3] # (B,C,H,W)
+            feat_reshape = feat.permute(0, 2, 3, 1).flatten(1, 2) # (B,H,W,C) >> (B,H*W,C)
+            if mask is not None:
+                mask_resize = F.interpolate(mask, size = (H,W))
+                mask_reshape = mask_resize.permute(0,2,3,1).flatten(1,2)
             if num_patches > 0:
-                if patch_ids is not None:
+                if patch_ids is not None: 
                     patch_id = patch_ids[feat_id]
                 else:
-                    patch_id = torch.randperm(feat_reshape.shape[1], device=feats[0].device)
+                    patch_id = torch.randperm(feat_reshape.shape[1], device=feats[0].device) # random permutation of H*W
                     patch_id = patch_id[:int(min(num_patches, patch_id.shape[0]))]  # .to(patch_ids.device)
+                    # min(256 patches, H*W) >> 256
+                    # get only 256 patches from H*W positions (flattened)
+                    if mask is not None:
+                        mask_sample = (mask_reshape[:,patch_id,:])
+                        mask_list.append(mask_sample)
                 x_sample = feat_reshape[:, patch_id, :].flatten(0, 1)  # reshape(-1, x.shape[1])
+                # only take positions of patch_id >> [B, s = 256, C] >> [B*S, C]
+                # More accurately, it is not x, but sampled (256) features
             else:
-                x_sample = feat_reshape
+                x_sample = feat_reshape 
                 patch_id = []
-            if self.use_mlp:
-                mlp = getattr(self, 'mlp_%d' % feat_id)
-                x_sample = mlp(x_sample)
-            return_ids.append(patch_id)
-            x_sample = self.l2norm(x_sample)
+            if self.use_mlp: # True by default
+                mlp = getattr(self, 'mlp_%d' % feat_id) # in create_mlp
+                x_sample = mlp(x_sample) # forward to mlp, [BS, C] >> [BS,BS], C to BS
+
+            return_ids.append(patch_id) # patch_id per each layer
+            x_sample = self.l2norm(x_sample) # normalized by vector magnitude
 
             if num_patches == 0:
                 x_sample = x_sample.permute(0, 2, 1).reshape([B, x_sample.shape[-1], H, W])
             return_feats.append(x_sample)
-        return return_feats, return_ids
+        if mask is not None:
+            return return_feats, return_ids, mask_list
+        else:
+            return return_feats, return_ids
 
 
 class G_Resnet(nn.Module):

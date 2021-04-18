@@ -1,5 +1,5 @@
 import os.path
-from data.base_dataset import BaseDataset, get_transform
+from data.base_dataset import BaseDataset, get_transform, get_transform_both
 from data.image_folder import make_dataset
 from PIL import Image
 import random
@@ -76,14 +76,14 @@ class UnalignedDataset(BaseDataset):
         modified_opt = util.copyconf(self.opt, load_size=self.opt.crop_size if is_finetuning else self.opt.load_size)
         transform = get_transform(modified_opt)
 
-        # 넘 귀찮당!
         if A_mask is not None:
             A, A_mask = get_transform_both(modified_opt, A_img, A_mask)
         else:
             A = transform(A_img) # 256,256,3 >> 3,256,256
+            A_mask = []
         B = transform(B_img)
 
-        return {'A': A, 'B': B, 'A_paths': A_path, 'B_paths': B_path} #여기에 mask
+        return {'A': A, 'B': B, 'A_paths': A_path, 'B_paths': B_path, 'A_mask' : A_mask} 
 
     def __len__(self):
         """Return the total number of images in the dataset.
