@@ -25,6 +25,7 @@ class UnalignedDataset(BaseDataset):
         """
         BaseDataset.__init__(self, opt)
         self.dir_mask_A = ''
+        self.is_COI = opt.is_COI
         if opt.is_COI:
             self.dir_A = '/data/nas_archive-research_local/999_project/015_COI_rnd_tf/a102du-black/sides/seg_patch_cropped_binary-labeled_for_cls/image'
             self.dir_B = '/data/nas_archive-research_local/999_project/015_COI_rnd_tf/a102du-white/sides/seg_patch_cropped_binary-labeled_for_cls/image'
@@ -33,10 +34,13 @@ class UnalignedDataset(BaseDataset):
             self.dir_A = os.path.join(opt.dataroot, opt.phase + 'A')  # create a path '/path/to/data/trainA'
             self.dir_B = os.path.join(opt.dataroot, opt.phase + 'B')  # create a path '/path/to/data/trainB'
 
-        if opt.phase == "test" and not os.path.exists(self.dir_A) \
-           and os.path.exists(os.path.join(opt.dataroot, "valA")):
-            self.dir_A = os.path.join(opt.dataroot, "valA")
-            self.dir_B = os.path.join(opt.dataroot, "valB")
+        if opt.phase == "test":
+            if opt.is_COI:
+                self.dir_A = '/data/nas_archive-research_local/999_project/015_COI_rnd_tf/a102du-black/sides/seg_patch_cropped_binary-labeled_for_cls/image'
+                self.dir_B = '/data/nas_archive-research_local/999_project/015_COI_rnd_tf/a102du-white/sides/seg_patch_cropped_binary-labeled_for_cls/image'
+            elif not os.path.exists(self.dir_A) and os.path.exists(os.path.join(opt.dataroot, "valA")):
+                self.dir_A = os.path.join(opt.dataroot, "valA")
+                self.dir_B = os.path.join(opt.dataroot, "valB")
 
         image_listA = make_dataset(self.dir_A, opt.max_dataset_size, opt.is_COI,self.dir_mask_A)
         self.A_paths = sorted(image_listA)   # load images from '/path/to/data/trainA'
@@ -63,11 +67,14 @@ class UnalignedDataset(BaseDataset):
             index_B = random.randint(0, self.B_size - 1)
         B_path = self.B_paths[index_B]
         
-        
-        A_mask = Image.open(A_path[1]) if len(A_path) > 1 else None
-        A_img = Image.open(A_path[0]).convert('RGB')
-        B_img = Image.open(B_path[0]).convert('RGB')
-
+        if self.is_COI:
+            A_mask = Image.open(A_path[1]) if len(A_path) > 1 else None
+            A_img = Image.open(A_path[0]).convert('RGB')
+            B_img = Image.open(B_path[0]).convert('RGB')
+        else:
+            A_mask = None
+            A_img = Image.open(A_path).convert('RGB')
+            B_img = Image.open(B_path).convert('RGB')
         # Apply image transformation
         # For FastCUT mode, if in finetuning phase (learning rate is decaying),
         # do not perform resize-crop data augmentation of CycleGAN.

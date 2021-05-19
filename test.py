@@ -58,13 +58,13 @@ if __name__ == '__main__':
             model.parallelize()
             if opt.eval:
                 model.eval()
-        if i >= opt.num_test:  # only apply our model to opt.num_test images.
+        if i >= opt.num_test and not opt.is_COI:  # only apply our model to opt.num_test images.
             break
         model.set_input(data)  # unpack data from data loader
         model.test()           # run inference
         visuals = model.get_current_visuals()  # get image results
         img_path = model.get_image_paths()     # get image paths
         if i % 5 == 0:  # save images to an HTML file
-            print('processing (%04d)-th image... %s' % (i, img_path))
-        save_images(webpage, visuals, img_path, width=opt.display_winsize)
+            print('processing (%05d)-th image... %s' % (i, img_path))
+        save_images(webpage, visuals, img_path, width=opt.display_winsize, is_COI = opt.is_COI)
     webpage.save()  # save the HTML
