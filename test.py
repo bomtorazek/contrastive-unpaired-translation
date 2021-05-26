@@ -33,6 +33,7 @@ from models import create_model
 from util.visualizer import save_images
 from util import html
 import util.util as util
+import numpy as np
 
 
 if __name__ == '__main__':
@@ -51,7 +52,7 @@ if __name__ == '__main__':
     print('creating web directory', web_dir)
     webpage = html.HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
 
-    total_D_loss = 0.0
+    total_loss = np.array([0]*8)
     for i, data in enumerate(dataset):
         if i == 0:
             model.data_dependent_initialize(data)
@@ -63,13 +64,16 @@ if __name__ == '__main__':
         #     break
         model.set_input(data)  # unpack data from data loader
         model.test()           # run inference
-        D_loss = model.compute_D_loss()
-        total_D_loss += (D_loss.item())
+        D_loss, D_loss_fake, D_loss_real = model.compute_D_loss()
+        loss_G, loss_G_GAN, loss_NCE_both, loss_NCE, loss_NCE_Y = model.compute_G_loss()
+        total_loss += np.array([D_loss.item(), D_loss_fake.item(), D_loss_real.item(),
+                                loss_G.item(), loss_G_GAN.item(), loss_NCE_both.item(), loss_NCE.item(), loss_NCE_Y.item()])
+
         visuals = model.get_current_visuals()  # get image results
         img_path = model.get_image_paths()     # get image paths
         if i % 5 == 0:  # save images to an HTML file
             print('processing (%05d)-th image... %s' % (i, img_path))
         save_images(webpage, visuals, img_path, width=opt.display_winsize, is_COI = opt.is_COI)
     webpage.save()  # save the HTML
-    print(total_D_loss / len(dataset))
+    print(total_loss / len(dataset))
     

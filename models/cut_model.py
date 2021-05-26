@@ -62,14 +62,12 @@ class CUTModel(BaseModel):
         self.visual_names = ['real_A', 'fake_B', 'real_B']
         self.nce_layers = [int(i) for i in self.opt.nce_layers.split(',')]
 
-        if opt.nce_idt and self.isTrain:
+        if opt.nce_idt:  #and self.isTrain:
             self.loss_names += ['NCE_Y']
             self.visual_names += ['idt_B']
 
-        if self.isTrain:
-            self.model_names = ['G', 'F', 'D']
-        else:  # during test time, only load G
-            self.model_names = ['G']
+        self.model_names = ['G', 'F', 'D']
+        
 
         # define networks (both generator and discriminator)
         self.netG = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG, opt.normG, not opt.no_dropout, opt.init_type, opt.init_gain, opt.no_antialias, opt.no_antialias_up, self.gpu_ids, opt)
@@ -77,14 +75,15 @@ class CUTModel(BaseModel):
         self.netD = networks.define_D(opt.output_nc, opt.ndf, opt.netD, opt.n_layers_D, opt.normD, opt.init_type, opt.init_gain, opt.no_antialias, self.gpu_ids, opt)
         self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)
         
+        
+        # define loss functions
+        self.criterionNCE = []
+
+        for nce_layer in self.nce_layers:
+            self.criterionNCE.append(PatchNCELoss(opt).to(self.device))
+
+        self.criterionIdt = torch.nn.L1Loss().to(self.device)
         if self.isTrain:
-            # define loss functions
-            self.criterionNCE = []
-
-            for nce_layer in self.nce_layers:
-                self.criterionNCE.append(PatchNCELoss(opt).to(self.device))
-
-            self.criterionIdt = torch.nn.L1Loss().to(self.device)
             self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt.lr, betas=(opt.beta1, opt.beta2))
             self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt.lr, betas=(opt.beta1, opt.beta2))
             self.optimizers.append(self.optimizer_G)
@@ -118,7 +117,7 @@ class CUTModel(BaseModel):
         # update D
         self.set_requires_grad(self.netD, True)
         self.optimizer_D.zero_grad()
-        self.loss_D = self.compute_D_loss()
+        self.loss_D, _, _ = self.compute_D_loss()
         self.loss_D.backward()
         self.optimizer_D.step()
 
@@ -127,7 +126,7 @@ class CUTModel(BaseModel):
         self.optimizer_G.zero_grad()
         if self.opt.netF == 'mlp_sample':
             self.optimizer_F.zero_grad()
-        self.loss_G = self.compute_G_loss()
+        self.loss_G, _, _, _, _ = self.compute_G_loss()
         self.loss_G.backward()
         self.optimizer_G.step()
         if self.opt.netF == 'mlp_sample':
@@ -148,7 +147,7 @@ class CUTModel(BaseModel):
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
-        self.real = torch.cat((self.real_A, self.real_B), dim=0) if self.opt.nce_idt and self.opt.isTrain else self.real_A
+        self.real = torch.cat((self.real_A, self.real_B), dim=0) if self.opt.nce_idt  else self.real_A
         if self.opt.flip_equivariance:
             self.flipped_for_equivariance = self.opt.isTrain and (np.random.random() < 0.5)
             if self.flipped_for_equivariance:
@@ -172,7 +171,7 @@ class CUTModel(BaseModel):
 
         # combine loss and calculate gradients
         self.loss_D = (self.loss_D_fake + self.loss_D_real) * 0.5
-        return self.loss_D
+        return self.loss_D, self.loss_D_fake, self.loss_D_real
 
     def compute_G_loss(self):
         """Calculate GAN and NCE loss for the generator"""
@@ -196,7 +195,7 @@ class CUTModel(BaseModel):
             loss_NCE_both = self.loss_NCE
 
         self.loss_G = self.loss_G_GAN + loss_NCE_both
-        return self.loss_G
+        return self.loss_G, self.loss_G_GAN, self.loss_NCE_both, self.loss_NCE, self.loss_NCE_Y
 
     def calculate_NCE_loss(self, src, tgt, mask = None):
         # src: real A
